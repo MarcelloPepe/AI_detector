@@ -1,11 +1,20 @@
 fastapi==0.119.0
 uvicorn[standard]==0.37.0
-sentence-transformers==5.1.1
-scikit-learn==1.7.2
+
 numpy==2.3.3
 scipy==1.16.2
+scikit-learn==1.7.2
+pydantic==2.12.2
+starlette==0.48.0
+anyio==4.11.0
+h11==0.16.0
+
+sentence-transformers==5.1.1
 transformers==4.57.1
 tokenizers==0.22.1
-safetensors==0.6.2
 huggingface-hub==0.35.3
-torch>=2.3,<2.10
+safetensors==0.6.2
+tqdm==4.67.1
+
+# IMPORTANT: explicit CPU torch for Linux
+torch==2.4.1

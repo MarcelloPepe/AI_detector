@@ -18,36 +18,34 @@ from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# Quiet HF tokenizer messages
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-# --------------------------------------------------------------------------------------
-# Config & artifacts
-# --------------------------------------------------------------------------------------
 ROOT_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT_DIR / "frontend"
-
 ARTIFACTS_DIR = Path(os.environ.get("ARTIFACTS_DIR", str(ROOT_DIR / "exp_v4")))
 
-INVITE_CODE = os.environ.get("INVITE_CODE", "").strip()  # set on Render (e.g., PM-2025)
+INVITE_CODE = os.environ.get("INVITE_CODE", "").strip()
 RATE_LIMIT_TOTAL = int(os.environ.get("RATE_LIMIT_TOTAL", "10"))
 MAX_WORDS = int(os.environ.get("MAX_WORDS", "1500"))
 
+# Prefer local model dir (preloaded at build); otherwise use model name from artifacts
+LOCAL_MODEL_DIR = os.environ.get("LOCAL_MODEL_DIR", "").strip()
+
 ARTIFACTS_JSON = ARTIFACTS_DIR / "artifacts.json"
 MODEL_PKL = ARTIFACTS_DIR / "clf.pkl"
-TOP_PC_BASIS = ARTIFACTS_DIR / "top_pc_basis.npy"  # optional
+TOP_PC_BASIS = ARTIFACTS_DIR / "top_pc_basis.npy"
 
 if not ARTIFACTS_JSON.exists() or not MODEL_PKL.exists():
     raise RuntimeError(
-        f"Missing artifacts. Expected at least:\n  - {ARTIFACTS_JSON}\n  - {MODEL_PKL}\n\n"
-        "Set ARTIFACTS_DIR to the folder created by your training run (e.g., exp_v4)."
+        f"Missing artifacts. Need:\n  - {ARTIFACTS_JSON}\n  - {MODEL_PKL}\n"
+        "Set ARTIFACTS_DIR to your exp folder (e.g., exp_v4)."
     )
 
 with open(ARTIFACTS_JSON, "r", encoding="utf-8") as f:
     ART = json.load(f)
 
 MODEL_NAME: str = ART.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
-CLF_FEATURES: List[str] = ART.get("clf_features") or [
+CLF_FEATURES = ART.get("clf_features") or [
     "n_sents_log", "log_path_len", "log_mean_step", "log_p90_step", "log_avg_nn_dist",
     "straightness", "dir_persistence", "turn_mean_deg", "step_cv", "burstiness", "frac_backtrack",
 ]
@@ -66,28 +64,24 @@ if REMOVE_TOP_PCS > 0 and TOP_PC_BASIS.exists():
 with open(MODEL_PKL, "rb") as f:
     ESTIMATOR = pickle.load(f)
 
-# In-memory usage counter (per invite code)
 USAGE = defaultdict(int)
 
-# Lazy-loaded embedder
 _EMBEDDER = None
 def get_embedder():
     global _EMBEDDER
     if _EMBEDDER is None:
         from sentence_transformers import SentenceTransformer
-        _EMBEDDER = SentenceTransformer(MODEL_NAME, device="cpu")
+        load_from = LOCAL_MODEL_DIR if LOCAL_MODEL_DIR else MODEL_NAME
+        print(f"[embedder] loading from: {load_from}")
+        _EMBEDDER = SentenceTransformer(load_from, device="cpu")
     return _EMBEDDER
 
-# --------------------------------------------------------------------------------------
-# Light preprocessing
-# --------------------------------------------------------------------------------------
 _ASCII_MAP = str.maketrans({
     "“": "\"", "”": "\"", "„": "\"", "‟": "\"", "«": "\"", "»": "\"",
     "‘": "'",  "’": "'",  "‚": "'",  "‛": "'",
     "—": "-",  "–": "-",  "‐": "-",
     "…": "...",
 })
-
 def sanitize_text(t: str) -> str:
     t = (t or "").replace("\xa0", " ").translate(_ASCII_MAP)
     t = t.replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").replace("\ufeff", "")
@@ -107,9 +101,6 @@ def sent_tokenize(text: str) -> List[str]:
         out.append(" ".join(s.split()[:120]) if len(s.split()) > 120 else s)
     return out
 
-# --------------------------------------------------------------------------------------
-# Geometry & features
-# --------------------------------------------------------------------------------------
 def embed_sentences(sents: List[str]) -> np.ndarray:
     if not sents:
         return np.zeros((0, 384), dtype=np.float32)
@@ -167,8 +158,9 @@ def mean_turn_angle_deg(E: np.ndarray) -> float:
     cs = _dir_cosines(E)
     if cs.size == 0:
         return 0.0
-    ang = np.degrees(np.arccos(cs))
-    return float(np.mean(np.abs(ang)))
+    import numpy as _np
+    ang = _np.degrees(_np.arccos(cs))
+    return float(_np.mean(_np.abs(ang)))
 
 def frac_backtrack(E: np.ndarray) -> float:
     cs = _dir_cosines(E)
@@ -225,27 +217,20 @@ def to_clf_vector(feats: Dict[str, float]) -> np.ndarray:
     vec = [float(f.get(name, 0.0)) for name in CLF_FEATURES]
     return np.asarray(vec, dtype=np.float32).reshape(1, -1)
 
-# --------------------------------------------------------------------------------------
-# FastAPI app
-# --------------------------------------------------------------------------------------
-app = FastAPI(title="AI Detector · Trajectory Features", version="1.1.0")
+app = FastAPI(title="AI Detector · Trajectory Features", version="1.2.0")
 
-# --------- Startup: warm the embedder so first /detect is instant ----------
 @app.on_event("startup")
 def _startup():
     try:
         model = get_embedder()
-        # Tiny warm-up
         _ = model.encode(["Hello world."], convert_to_numpy=True, normalize_embeddings=True)
         print("[startup] Embedder ready.")
     except Exception as e:
         print("[startup] Embedder init failed:", e)
         traceback.print_exc()
 
-# --------- Frontend routes (explicit) ----------
 @app.get("/", response_class=FileResponse)
 def landing():
-    """Public landing page with invite form."""
     f = FRONTEND_DIR / "landing.html"
     if not f.exists():
         return PlainTextResponse("landing.html missing", status_code=500)
@@ -253,28 +238,24 @@ def landing():
 
 @app.get("/app", response_class=FileResponse)
 def app_page():
-    """Main detector UI (requires invite stored in localStorage)."""
     f = FRONTEND_DIR / "index.html"
     if not f.exists():
         return PlainTextResponse("index.html missing", status_code=500)
     return FileResponse(str(f))
 
-# Serve other static assets (if any) under /static
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR), html=False), name="static")
 
-# --------- API ---------
 api = APIRouter(prefix="/api")
 
 @api.get("/healthz")
 def healthz():
     ok = _EMBEDDER is not None
-    return {"ok": True, "embedder_loaded": ok, "model": MODEL_NAME}
+    return {"ok": True, "embedder_loaded": ok, "model": (LOCAL_MODEL_DIR or MODEL_NAME)}
 
 class DetectIn(BaseModel):
     text: str
 
 def _get_invite(req: Request) -> str:
-    # Header takes precedence; fallback to query param ?code=
     code = req.headers.get("X-Invite-Code", "").strip()
     if not code:
         qp = req.query_params.get("code", "")
@@ -288,44 +269,37 @@ def _count_words(s: str) -> int:
 async def detect(req: Request, payload: DetectIn):
     t0 = time.time()
 
-    # 0) Invite code check
     if INVITE_CODE:
         code = _get_invite(req)
         if not code:
             raise HTTPException(status_code=401, detail="Missing invite code.")
         if code != INVITE_CODE:
             raise HTTPException(status_code=403, detail="Invalid invite code.")
-        # rate limit per code (simple in-memory counter)
         if USAGE[code] >= RATE_LIMIT_TOTAL:
             raise HTTPException(status_code=429, detail="Usage limit reached for this invite code.")
         USAGE[code] += 1
 
-    # 1) Text checks
-    raw_text = (payload.text or "").strip()
+    raw_text = (payload.text or "").trim()
     if not raw_text:
         raise HTTPException(status_code=422, detail="Empty text.")
     wc = _count_words(raw_text)
     if wc > MAX_WORDS:
         raise HTTPException(status_code=413, detail=f"Input too long: {wc} words. Max is {MAX_WORDS}.")
 
-    # 2) Preprocess
     text = sanitize_text(raw_text)
     sents = sent_tokenize(text)
     if len(sents) < 2:
         raise HTTPException(status_code=422, detail="Need at least 2 complete sentences to analyze.")
 
-    # 3) Embed
     try:
         E = embed_sentences(sents)
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Embedding failed: {e}")
 
-    # 4) Features -> vector
     feats = features_from_doc_embeddings(E)
     X = to_clf_vector(feats)
 
-    # 5) Predict
     try:
         prob_ai = float(ESTIMATOR.predict_proba(X)[:, 1][0])
     except Exception as e:
@@ -353,7 +327,7 @@ async def detect(req: Request, payload: DetectIn):
         "prob_ai": prob_ai,
         "threshold": DECISION_THRESHOLD,
         "n_sents": feats["n_sents"],
-        "model_name": MODEL_NAME,
+        "model_name": (LOCAL_MODEL_DIR or MODEL_NAME),
         "calibrated": CALIBRATED,
         "calibration_method": CALIBRATION_METHOD,
         "latency_ms": latency_ms,
