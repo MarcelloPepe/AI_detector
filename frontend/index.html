@@ -157,6 +157,16 @@
 </head>
 <body>
 
+  <script>
+    // Gate: require invite code in localStorage before using the app
+    const INVITE_KEY = 'invite_code_v1';
+    const invite = localStorage.getItem(INVITE_KEY);
+    if(!invite){
+      // If no invite code stored, send to landing to enter it.
+      window.location.replace('/');
+    }
+  </script>
+
   <header>
     <div class="wrap">
       <a class="brand" href="/">
@@ -176,9 +186,9 @@
       <section class="card">
         <div class="hd">Paste text</div>
         <div class="bd">
-          <textarea id="text" placeholder="Paste or type your text here. Aim for at least 2-3 full sentences for best results..."></textarea>
+          <textarea id="text" placeholder="Paste or type your text here. Aim for at least 2–3 full sentences for best results..."></textarea>
           <div class="split">
-            <div class="muted" id="charCount">0 chars</div>
+            <div class="muted" id="charCount">0 chars · 0 words / 1500 max</div>
             <div class="muted">We don't store your text on the server.</div>
           </div>
           <div class="controls">
@@ -226,11 +236,15 @@
         <div class="section">
           <div class="li">
             <div class="dot"></div>
-            <div><strong>Fast on CPU.</strong> No external LLM calls; sentence-embedding geometry keeps it snappy.</div>
+            <div><strong>Fast on CPU.</strong> Lightweight sentence embeddings + geometry features = quick results without GPUs.</div>
           </div>
           <div class="li">
             <div class="dot"></div>
-            <div><strong>Modern training.</strong> Tuned on GPT-5–era outputs; clearer probability + threshold so calls are understandable.</div>
+            <div><strong>Calibrated, interpretable scores.</strong> Clear probabilities and a transparent decision threshold.</div>
+          </div>
+          <div class="li">
+            <div class="dot"></div>
+            <div><strong>Trained for GPT-5 era writing.</strong> Tuned on newer model style; many detectors target earlier LLMs.</div>
           </div>
         </div>
       </div>
@@ -263,13 +277,19 @@
         <div class="li">
           <div class="dot"></div>
           <div>
-            <strong>Pipeline.</strong> Sentence tokenization → MiniLM-L6 sentence embeddings (L2-norm) → trajectory features (path length, variance, straightness, directional persistence, NN distances) → standardized logistic regression + probability calibration + tuned threshold.
+            <strong>Pipeline.</strong> Sentence tokenization → MiniLM-L6 embeddings (L2-norm) → trajectory features (path length, variance, straightness, directional persistence, nearest-neighbor distances) → standardized logistic regression + probability calibration + tuned threshold.
           </div>
         </div>
         <div class="li">
           <div class="dot"></div>
           <div>
-            <strong>When it shines.</strong> Coherent prose (news, essays, reports). Very short/fragmented inputs reduce signal; pair with human judgment for high-stakes use.
+            <strong>Why it works.</strong> Human writing meanders with uneven pacing; LLM outputs are smoother. Geometry captures that without peeking at specific words.
+          </div>
+        </div>
+        <div class="li">
+          <div class="dot"></div>
+          <div>
+            <strong>Scope.</strong> Best on coherent prose (news, essays, reports). Use alongside human judgment for high-stakes decisions.
           </div>
         </div>
       </div>
@@ -304,16 +324,16 @@
     const closeTech = $('#closeTech');
 
     const LS_KEY = 'aidetector_history_v1';
-    const INVITE_KEY = 'aidetector_invite_code';
+    const INVITE_KEY = 'invite_code_v1';
     const MAX_WORDS = 1500;
 
-    function getInviteCode(){ return localStorage.getItem(INVITE_KEY) || ""; }
-
+    function wordCount(s){ return (s.trim().match(/\b[\w’'-]+\b/g)||[]).length; }
     function fmtPct(x){return (x*100).toFixed(1)+'%';}
     function fmtMs(ms){return ms.toFixed(0)+' ms';}
 
     function updateCharCount(){
-      charCount.textContent = (text.value||'').length + ' chars';
+      const t = text.value||'';
+      charCount.textContent = `${t.length} chars · ${wordCount(t)} words / ${MAX_WORDS} max`;
     }
     updateCharCount();
     text.addEventListener('input', updateCharCount);
@@ -379,28 +399,14 @@
 
     clearBtn.addEventListener('click', ()=>{ text.value=''; updateCharCount(); text.focus(); });
 
-    function wordCount(str){
-      return (str.trim().split(/\s+/).filter(Boolean)).length;
-    }
-
     detectBtn.addEventListener('click', async ()=>{
       const payload = (text.value||'').trim();
       if(payload.length < 40){ alert('Please paste a few full sentences for best results.'); return; }
+      const wc = wordCount(payload);
+      if(wc > MAX_WORDS){ alert(`Max input is ${MAX_WORDS} words. You're at ~${wc}. Please shorten your text.`); return; }
 
-      // Client-side word limit
-      const words = wordCount(payload);
-      if(words > MAX_WORDS){
-        alert(`Input is too long. Max ${MAX_WORDS} words.`);
-        return;
-      }
-
-      // Require invite code
-      const invite = getInviteCode();
-      if(!invite){
-        alert('Missing invite code. Returning to the landing page.');
-        window.location.href = '/';
-        return;
-      }
+      const invite = localStorage.getItem(INVITE_KEY) || '';
+      if(!invite){ alert('Invite code missing. Please go back to the landing page and enter the code.'); window.location.replace('/'); return; }
 
       setLoading(true);
       predText.textContent = 'Running...';
@@ -410,6 +416,7 @@
       featPreview.textContent = '—';
 
       try{
+        const t0 = performance.now();
         const res = await fetch('/api/detect', {
           method:'POST',
           headers:{
@@ -418,44 +425,31 @@
           },
           body: JSON.stringify({text: payload})
         });
-
-        if(res.status === 401){
-          alert('Invalid or missing invite code. Returning to the landing page.');
-          window.location.href = '/';
-          return;
-        }
-        if(res.status === 429){
-          const err429 = await res.json().catch(()=>({detail:'Rate limit reached'}));
-          alert(err429.detail || 'Rate limit reached (10 detections total per invite code).');
-          return;
-        }
+        const maybeJSON = await res.json().catch(()=>null);
         if(!res.ok){
-          const err = await res.json().catch(()=>({detail: res.statusText}));
-          throw new Error(err.detail || ('HTTP '+res.status));
+          const msg = (maybeJSON && (maybeJSON.detail||maybeJSON.message)) || (`HTTP ${res.status}`);
+          throw new Error(msg);
         }
-
-        const data = await res.json();
+        const data = maybeJSON;
 
         // Update UI
         const label = data.label;
-        const labelText = (label==='ai' ? 'Looks AI-generated' : 'Looks human-written');
         badge(label);
-        predText.textContent = labelText;
+        predText.textContent = (label==='ai' ? 'Looks AI-generated' : 'Looks human-written');
         pAI.textContent = fmtPct(data.prob_ai);
         thr.textContent = fmtPct(data.threshold);
         nSents.textContent = data.n_sents;
         model.textContent = data.model_name || '—';
         calib.textContent = data.calibrated ? ('Calibrated ('+(data.calibration_method||'')+')') : 'Uncalibrated';
-        lat.textContent = data.latency_ms ? fmtMs(data.latency_ms) : '—';
+        const took = data.latency_ms ?? (performance.now()-t0);
+        lat.textContent = fmtMs(took);
         probBar.style.width = (data.prob_ai*100).toFixed(1)+'%';
 
         const fp = data.debug?.features_preview || {};
         featPreview.textContent = `n_sents=${fp.n_sents ?? '—'}  path_len=${fp.path_len ?? '—'}  mean_step=${fp.mean_step ?? '—'}  p90=${fp.p90_step ?? '—'}  straight=${fp.straightness ?? '—'}  dir_persist=${fp.dir_persistence ?? '—'}  nn=${fp.avg_nn_dist ?? '—'}`;
 
-        // Save compact preview locally
         const preview = payload.slice(0, 180).replace(/\s+/g,' ') + (payload.length>180?'...':'');
-        const labelSimple = (label==='ai'?'ai':'human');
-        pushHistory({t: Date.now(), label: labelSimple, prob_ai: data.prob_ai, preview});
+        pushHistory({t: Date.now(), label, prob_ai: data.prob_ai, preview});
       }catch(e){
         badge(null);
         predText.textContent = 'Error';

@@ -1,21 +1,24 @@
 # backend/server.py
 # FastAPI backend for the Trajectory-Features AI Detector
+
 import os
 import re
 import json
 import time
 import math
 import pickle
+import traceback
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from collections import defaultdict
 
 import numpy as np
 from fastapi import FastAPI, APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# Reduce noisy HF/Tokenizers logs for web usage
+# Quiet HF tokenizer messages
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 # --------------------------------------------------------------------------------------
@@ -24,12 +27,15 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 ROOT_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT_DIR / "frontend"
 
-# Where your artifacts live (set this env var before starting uvicorn)
 ARTIFACTS_DIR = Path(os.environ.get("ARTIFACTS_DIR", str(ROOT_DIR / "exp_v4")))
+
+INVITE_CODE = os.environ.get("INVITE_CODE", "").strip()  # set on Render (e.g., PM-2025)
+RATE_LIMIT_TOTAL = int(os.environ.get("RATE_LIMIT_TOTAL", "10"))
+MAX_WORDS = int(os.environ.get("MAX_WORDS", "1500"))
 
 ARTIFACTS_JSON = ARTIFACTS_DIR / "artifacts.json"
 MODEL_PKL = ARTIFACTS_DIR / "clf.pkl"
-TOP_PC_BASIS = ARTIFACTS_DIR / "top_pc_basis.npy"  # exists only if you trained with --remove_top_pcs>0
+TOP_PC_BASIS = ARTIFACTS_DIR / "top_pc_basis.npy"  # optional
 
 if not ARTIFACTS_JSON.exists() or not MODEL_PKL.exists():
     raise RuntimeError(
@@ -40,7 +46,6 @@ if not ARTIFACTS_JSON.exists() or not MODEL_PKL.exists():
 with open(ARTIFACTS_JSON, "r", encoding="utf-8") as f:
     ART = json.load(f)
 
-# Pull what we need
 MODEL_NAME: str = ART.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
 CLF_FEATURES: List[str] = ART.get("clf_features") or [
     "n_sents_log", "log_path_len", "log_mean_step", "log_p90_step", "log_avg_nn_dist",
@@ -51,7 +56,6 @@ CALIBRATED: bool = bool(ART.get("calibrated", False))
 CALIBRATION_METHOD: str = ART.get("calibration_method", "isotonic") if CALIBRATED else "none"
 REMOVE_TOP_PCS: int = int(ART.get("remove_top_pcs", 0))
 
-# Optional PCA basis (only present if you trained with --remove_top_pcs > 0)
 U_BASIS: Optional[np.ndarray] = None
 if REMOVE_TOP_PCS > 0 and TOP_PC_BASIS.exists():
     try:
@@ -59,11 +63,13 @@ if REMOVE_TOP_PCS > 0 and TOP_PC_BASIS.exists():
     except Exception:
         U_BASIS = None
 
-# Load classifier (Pipeline or CalibratedClassifierCV wrapping Pipeline)
 with open(MODEL_PKL, "rb") as f:
     ESTIMATOR = pickle.load(f)
 
-# Lazy-loaded embedder (instantiate on first request)
+# In-memory usage counter (per invite code)
+USAGE = defaultdict(int)
+
+# Lazy-loaded embedder
 _EMBEDDER = None
 def get_embedder():
     global _EMBEDDER
@@ -73,7 +79,7 @@ def get_embedder():
     return _EMBEDDER
 
 # --------------------------------------------------------------------------------------
-# Light, deployment-friendly preprocessing
+# Light preprocessing
 # --------------------------------------------------------------------------------------
 _ASCII_MAP = str.maketrans({
     "“": "\"", "”": "\"", "„": "\"", "‟": "\"", "«": "\"", "»": "\"",
@@ -83,35 +89,26 @@ _ASCII_MAP = str.maketrans({
 })
 
 def sanitize_text(t: str) -> str:
-    """Normalize curly quotes/dashes; strip zero-width chars; squeeze spaces."""
     t = (t or "").replace("\xa0", " ").translate(_ASCII_MAP)
     t = t.replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").replace("\ufeff", "")
-    # Trim super long runs of whitespace
     t = " ".join(t.split())
     return t.strip()
 
-# Minimal sentence splitter
 _SENT_SPLIT_REGEX = r"(?<=[.!?])\s+(?=[A-Z0-9\"'])"
 def sent_tokenize(text: str) -> List[str]:
     parts = re.split(_SENT_SPLIT_REGEX, text.strip())
-    # Clean fragments
     sents = []
     for s in parts:
         s = s.strip(" \t\r\n\"'“”‘’")
         if len(s) >= 15:
             sents.append(s)
-    # Cap extremely long sentences
     out = []
     for s in sents:
-        words = s.split()
-        if len(words) > 120:
-            out.append(" ".join(words[:120]))
-        else:
-            out.append(s)
+        out.append(" ".join(s.split()[:120]) if len(s.split()) > 120 else s)
     return out
 
 # --------------------------------------------------------------------------------------
-# Geometry & features (match training)
+# Geometry & features
 # --------------------------------------------------------------------------------------
 def embed_sentences(sents: List[str]) -> np.ndarray:
     if not sents:
@@ -124,10 +121,8 @@ def embed_sentences(sents: List[str]) -> np.ndarray:
         convert_to_numpy=True,
         normalize_embeddings=True,
     ).astype(np.float32)
-    # exact L2-normalize
     norms = np.linalg.norm(E, axis=1, keepdims=True) + 1e-12
     E = E / norms
-    # Optional: remove top common components if basis is provided
     if U_BASIS is not None and U_BASIS.size:
         P = E.copy()
         for ui in U_BASIS:
@@ -221,82 +216,123 @@ def features_from_doc_embeddings(E: np.ndarray) -> Dict[str, float]:
     }
 
 def to_clf_vector(feats: Dict[str, float]) -> np.ndarray:
-    # Build derived/log features exactly like training did
     f = dict(feats)
-    f["n_sents_log"] = math.log1p(f.get("n_sents", 0.0))
-    f["log_path_len"] = math.log1p(f.get("path_len", 0.0))
-    f["log_mean_step"] = math.log1p(f.get("mean_step", 0.0))
-    f["log_p90_step"] = math.log1p(f.get("p90_step", 0.0))
+    f["n_sents_log"]     = math.log1p(f.get("n_sents", 0.0))
+    f["log_path_len"]    = math.log1p(f.get("path_len", 0.0))
+    f["log_mean_step"]   = math.log1p(f.get("mean_step", 0.0))
+    f["log_p90_step"]    = math.log1p(f.get("p90_step", 0.0))
     f["log_avg_nn_dist"] = math.log1p(f.get("avg_nn_dist", 0.0))
     vec = [float(f.get(name, 0.0)) for name in CLF_FEATURES]
     return np.asarray(vec, dtype=np.float32).reshape(1, -1)
 
 # --------------------------------------------------------------------------------------
-# Invite-code gate, total usage limit, word cap
+# FastAPI app
 # --------------------------------------------------------------------------------------
-INVITE_CODE = os.getenv("INVITE_CODE", "DEMO-ACCESS-2025")
-RATE_LIMIT_TOTAL = int(os.getenv("RATE_LIMIT_TOTAL", "10"))  # total detections per code
-MAX_WORDS = int(os.getenv("MAX_WORDS", "1500"))
+app = FastAPI(title="AI Detector · Trajectory Features", version="1.1.0")
 
-USAGE: Dict[str, int] = {}
+# --------- Startup: warm the embedder so first /detect is instant ----------
+@app.on_event("startup")
+def _startup():
+    try:
+        model = get_embedder()
+        # Tiny warm-up
+        _ = model.encode(["Hello world."], convert_to_numpy=True, normalize_embeddings=True)
+        print("[startup] Embedder ready.")
+    except Exception as e:
+        print("[startup] Embedder init failed:", e)
+        traceback.print_exc()
 
-def count_words(text: str) -> int:
-    return len([w for w in re.split(r"\s+", (text or "").strip()) if w])
+# --------- Frontend routes (explicit) ----------
+@app.get("/", response_class=FileResponse)
+def landing():
+    """Public landing page with invite form."""
+    f = FRONTEND_DIR / "landing.html"
+    if not f.exists():
+        return PlainTextResponse("landing.html missing", status_code=500)
+    return FileResponse(str(f))
 
-def check_gate(request: Request):
-    code = request.headers.get("X-Invite-Code", "").strip()
-    if not code or code != INVITE_CODE:
-        raise HTTPException(status_code=401, detail="Invalid or missing invite code.")
-    used = USAGE.get(code, 0)
-    if used >= RATE_LIMIT_TOTAL:
-        raise HTTPException(status_code=429, detail="Rate limit reached for this invite code.")
-    USAGE[code] = used + 1
+@app.get("/app", response_class=FileResponse)
+def app_page():
+    """Main detector UI (requires invite stored in localStorage)."""
+    f = FRONTEND_DIR / "index.html"
+    if not f.exists():
+        return PlainTextResponse("index.html missing", status_code=500)
+    return FileResponse(str(f))
 
-# --------------------------------------------------------------------------------------
-# FastAPI app & routes
-# --------------------------------------------------------------------------------------
-app = FastAPI(title="AI Detector · Trajectory Features", version="1.0.0")
+# Serve other static assets (if any) under /static
+app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR), html=False), name="static")
+
+# --------- API ---------
 api = APIRouter(prefix="/api")
 
 @api.get("/healthz")
 def healthz():
-    return {"ok": True}
+    ok = _EMBEDDER is not None
+    return {"ok": True, "embedder_loaded": ok, "model": MODEL_NAME}
 
 class DetectIn(BaseModel):
     text: str
 
+def _get_invite(req: Request) -> str:
+    # Header takes precedence; fallback to query param ?code=
+    code = req.headers.get("X-Invite-Code", "").strip()
+    if not code:
+        qp = req.query_params.get("code", "")
+        code = (qp or "").strip()
+    return code
+
+def _count_words(s: str) -> int:
+    return len(re.findall(r"\b[\w’'-]+\b", s or ""))
+
 @api.post("/detect")
-def detect(payload: DetectIn, request: Request):
-    # gate + rate limit + word cap
-    check_gate(request)
+async def detect(req: Request, payload: DetectIn):
+    t0 = time.time()
+
+    # 0) Invite code check
+    if INVITE_CODE:
+        code = _get_invite(req)
+        if not code:
+            raise HTTPException(status_code=401, detail="Missing invite code.")
+        if code != INVITE_CODE:
+            raise HTTPException(status_code=403, detail="Invalid invite code.")
+        # rate limit per code (simple in-memory counter)
+        if USAGE[code] >= RATE_LIMIT_TOTAL:
+            raise HTTPException(status_code=429, detail="Usage limit reached for this invite code.")
+        USAGE[code] += 1
+
+    # 1) Text checks
     raw_text = (payload.text or "").strip()
     if not raw_text:
         raise HTTPException(status_code=422, detail="Empty text.")
-    if count_words(raw_text) > MAX_WORDS:
-        raise HTTPException(status_code=413, detail=f"Input too long. Max {MAX_WORDS} words.")
+    wc = _count_words(raw_text)
+    if wc > MAX_WORDS:
+        raise HTTPException(status_code=413, detail=f"Input too long: {wc} words. Max is {MAX_WORDS}.")
 
-    t0 = time.time()
-
-    # 1) Preprocess
+    # 2) Preprocess
     text = sanitize_text(raw_text)
     sents = sent_tokenize(text)
     if len(sents) < 2:
         raise HTTPException(status_code=422, detail="Need at least 2 complete sentences to analyze.")
 
-    # 2) Embed
-    E = embed_sentences(sents)
+    # 3) Embed
+    try:
+        E = embed_sentences(sents)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Embedding failed: {e}")
 
-    # 3) Features -> vector
+    # 4) Features -> vector
     feats = features_from_doc_embeddings(E)
     X = to_clf_vector(feats)
 
-    # 4) Predict proba -> threshold
+    # 5) Predict
     try:
         prob_ai = float(ESTIMATOR.predict_proba(X)[:, 1][0])
     except Exception as e:
         try:
             prob_ai = float(ESTIMATOR.base_estimator_.predict_proba(X)[:, 1][0])  # type: ignore[attr-defined]
         except Exception as e2:
+            traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"Model error: {e2}") from e
 
     label = "ai" if prob_ai >= DECISION_THRESHOLD else "human"
@@ -321,45 +357,9 @@ def detect(payload: DetectIn, request: Request):
         "calibrated": CALIBRATED,
         "calibration_method": CALIBRATION_METHOD,
         "latency_ms": latency_ms,
-        "debug": {
-            "features_preview": preview,
-        },
+        "debug": {"features_preview": preview},
+        "remaining": (RATE_LIMIT_TOTAL - USAGE[code]) if INVITE_CODE else None
     })
 
-@api.get("/meta")
-def meta():
-    return {
-        "artifacts_dir": str(ARTIFACTS_DIR),
-        "model_name": MODEL_NAME,
-        "threshold": DECISION_THRESHOLD,
-        "calibrated": CALIBRATED,
-        "calibration_method": CALIBRATION_METHOD,
-        "clf_features": CLF_FEATURES,
-        "remove_top_pcs": REMOVE_TOP_PCS,
-    }
-
-# Include API router
 app.include_router(api)
-
-# Landing and app routes (served before the static mount)
-@app.get("/", response_class=HTMLResponse)
-def landing():
-    lp = FRONTEND_DIR / "landing.html"
-    if lp.exists():
-        return FileResponse(str(lp))
-    # Fallback: if landing missing, go straight to app
-    ix = FRONTEND_DIR / "index.html"
-    if ix.exists():
-        return FileResponse(str(ix))
-    return HTMLResponse("<h1>Frontend missing</h1>", status_code=200)
-
-@app.get("/app", response_class=HTMLResponse)
-def app_page():
-    ix = FRONTEND_DIR / "index.html"
-    if ix.exists():
-        return FileResponse(str(ix))
-    return HTMLResponse("<h1>index.html missing</h1>", status_code=200)
-
-# Finally, mount the static frontend (so direct asset links work)
-app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
