@@ -1,0 +1,224 @@
+{
+  "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+  "device": "cpu",
+  "feature_names_raw": [
+    "n_sents",
+    "path_len",
+    "mean_step",
+    "p90_step",
+    "p95_step",
+    "step_cv",
+    "burstiness",
+    "straightness",
+    "dir_persistence",
+    "turn_mean_deg",
+    "frac_backtrack",
+    "avg_nn_dist"
+  ],
+  "clf_features": [
+    "n_sents_log",
+    "log_path_len",
+    "log_mean_step",
+    "log_p90_step",
+    "log_avg_nn_dist",
+    "straightness",
+    "dir_persistence",
+    "turn_mean_deg",
+    "step_cv",
+    "burstiness",
+    "frac_backtrack"
+  ],
+  "decision_threshold": 0.49999999999999994,
+  "threshold_objective": "f1",
+  "threshold_split": "trainval",
+  "recall_floor": 0.85,
+  "remove_top_pcs": 0,
+  "add_domain_feature": false,
+  "calibrated": true,
+  "calibration_method": "isotonic",
+  "metrics": {
+    "train": {
+      "acc": 0.8709677419354839,
+      "f1": 0.8795180722891566,
+      "auc": 0.9178321678321678,
+      "prec": 0.8295454545454546,
+      "rec": 0.9358974358974359,
+      "cm": [
+        [
+          62,
+          15
+        ],
+        [
+          5,
+          73
+        ]
+      ]
+    },
+    "val": {
+      "acc": 0.7857142857142857,
+      "f1": 0.8,
+      "auc": 0.9336734693877551,
+      "prec": 0.75,
+      "rec": 0.8571428571428571,
+      "cm": [
+        [
+          10,
+          4
+        ],
+        [
+          2,
+          12
+        ]
+      ]
+    },
+    "test": {
+      "acc": 0.84375,
+      "f1": 0.8648648648648649,
+      "auc": 0.908203125,
+      "prec": 0.7619047619047619,
+      "rec": 1.0,
+      "cm": [
+        [
+          11,
+          5
+        ],
+        [
+          0,
+          16
+        ]
+      ]
+    }
+  },
+  "metrics_thr05": {
+    "train": {
+      "acc": 0.8709677419354839,
+      "f1": 0.8795180722891566,
+      "auc": 0.9178321678321678,
+      "prec": 0.8295454545454546,
+      "rec": 0.9358974358974359,
+      "cm": [
+        [
+          62,
+          15
+        ],
+        [
+          5,
+          73
+        ]
+      ]
+    },
+    "val": {
+      "acc": 0.7857142857142857,
+      "f1": 0.8,
+      "auc": 0.9336734693877551,
+      "prec": 0.75,
+      "rec": 0.8571428571428571,
+      "cm": [
+        [
+          10,
+          4
+        ],
+        [
+          2,
+          12
+        ]
+      ]
+    },
+    "test": {
+      "acc": 0.84375,
+      "f1": 0.8648648648648649,
+      "auc": 0.908203125,
+      "prec": 0.7619047619047619,
+      "rec": 1.0,
+      "cm": [
+        [
+          11,
+          5
+        ],
+        [
+          0,
+          16
+        ]
+      ]
+    }
+  },
+  "domain_metrics": {
+    "val": {
+      "news": {
+        "acc": 0.7222222222222222,
+        "f1": 0.7368421052631579,
+        "auc": 0.9259259259259259,
+        "prec": 0.7,
+        "rec": 0.7777777777777778,
+        "cm": [
+          [
+            6,
+            3
+          ],
+          [
+            2,
+            7
+          ]
+        ]
+      },
+      "pg19": {
+        "acc": 0.9,
+        "f1": 0.9090909090909091,
+        "auc": 1.0,
+        "prec": 0.8333333333333334,
+        "rec": 1.0,
+        "cm": [
+          [
+            4,
+            1
+          ],
+          [
+            0,
+            5
+          ]
+        ]
+      }
+    },
+    "test": {
+      "news": {
+        "acc": 0.8571428571428571,
+        "f1": 0.875,
+        "auc": 0.9107142857142857,
+        "prec": 0.7777777777777778,
+        "rec": 1.0,
+        "cm": [
+          [
+            10,
+            4
+          ],
+          [
+            0,
+            14
+          ]
+        ]
+      },
+      "pg19": {
+        "acc": 0.75,
+        "f1": 0.8,
+        "auc": 1.0,
+        "prec": 0.6666666666666666,
+        "rec": 1.0,
+        "cm": [
+          [
+            1,
+            1
+          ],
+          [
+            0,
+            2
+          ]
+        ]
+      }
+    }
+  },
+  "best_params": {
+    "lr__C": 3.0,
+    "lr__penalty": "l2"
+  },
+  "cv_auc_train": 0.8958333333333334
+}

@@ -1,0 +1,91 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Detector</title>
+  <style>
+    :root{
+      --bg:#0b0f1a; --card:#121829; --text:#e8ecf2; --muted:#9aa6b2; --accent:#5b8cff; --accent-2:#22c55e;
+      --shadow:0 10px 30px rgba(0,0,0,.35); --radius:18px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; color:var(--text); background:radial-gradient(1200px 1200px at 80% -100%, #152144 0%, #0b0f1a 40%, #0b0f1a 100%) fixed}
+    .wrap{min-height:100dvh; display:grid; place-items:center; padding:48px 16px}
+    .card{width:100%; max-width:940px; background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) border-box, linear-gradient(180deg, #1d2744, #0f1426) border-box;
+          border:1px solid rgba(255,255,255,.08); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden}
+    .row{display:grid; grid-template-columns:1.2fr 1fr; gap:24px; padding:36px}
+    @media (max-width:900px){ .row{grid-template-columns:1fr; padding:22px} }
+    .hero h1{font-size:38px; line-height:1.1; margin:0 0 12px}
+    .hero p{font-size:16px; color:var(--muted); margin:0 0 18px}
+    .chips{display:flex; flex-wrap:wrap; gap:10px; margin:12px 0 0}
+    .chip{font-size:12px; color:#cfe1ff; background:rgba(91,140,255,.13); border:1px solid rgba(91,140,255,.35);
+          padding:8px 10px; border-radius:999px}
+    .panel{background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:20px}
+    label{display:block; font-size:13px; color:var(--muted); margin:0 0 8px}
+    input[type=password]{width:100%; background:#0e1424; color:var(--text); border:1px solid rgba(255,255,255,.14); border-radius:10px;
+                         padding:12px 14px; outline:none}
+    input[type=password]::placeholder{color:#6b7480}
+    .btn{display:inline-flex; align-items:center; justify-content:center; gap:10px; padding:12px 16px; border-radius:10px;
+         border:1px solid rgba(255,255,255,.12); text-decoration:none; cursor:pointer; user-select:none; white-space:nowrap}
+    .btn-primary{background:linear-gradient(180deg,#5b8cff,#4c77df); color:white; border-color:#4067bf}
+    .btn-primary:hover{filter:brightness(1.05)}
+    .btn-ghost{background:transparent; color:#cfe1ff}
+    .foot{display:flex; gap:12px; align-items:center; margin-top:14px}
+    .note{font-size:12px; color:#9fb0c6}
+    .check{display:inline-block; width:10px; height:10px; border-radius:2px; background:var(--accent-2); margin-right:8px}
+    .list{display:grid; gap:10px; margin-top:16px}
+    .list li{list-style:none; display:flex; align-items:flex-start; gap:10px; color:#cfe1ff}
+    .li-dot{width:7px; height:7px; border-radius:999px; background:#5b8cff; margin-top:6px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="row">
+        <section class="hero">
+          <h1>AI Detector<br/>fast, modern, easy to read</h1>
+          <p>Paste text and get a clear judgment with a probability score. CPU-only inference keeps it snappy; trained on current-generation GPT outputs.</p>
+          <div class="chips">
+            <span class="chip">Fast CPU-only inference</span>
+            <span class="chip">Calibrated probability</span>
+            <span class="chip">Transparent threshold</span>
+          </div>
+          <ul class="list">
+            <li><span class="li-dot"></span><span>Quicker than most detectors (no external LLM calls).</span></li>
+            <li><span class="li-dot"></span><span>Trained on modern GPT outputs; UI shows confidence and threshold.</span></li>
+          </ul>
+        </section>
+
+        <section>
+          <div class="panel">
+            <label for="invite">Invite code</label>
+            <input id="invite" type="password" placeholder="Enter invite code" autofocus />
+            <div class="foot">
+              <button id="go" class="btn btn-primary">Try live demo</button>
+              <button id="clear" class="btn btn-ghost">Clear</button>
+            </div>
+            <p class="note">Your code is stored in your browser for this demo. You get up to 10 detections total.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const INVITE_KEY = "aidetector_invite_code";
+    document.getElementById("go").addEventListener("click", () => {
+      const code = (document.getElementById("invite").value || "").trim();
+      if(!code){ alert("Please enter your invite code."); return; }
+      localStorage.setItem(INVITE_KEY, code);
+      window.location.href = "/app";
+    });
+    document.getElementById("clear").addEventListener("click", () => {
+      localStorage.removeItem(INVITE_KEY);
+      document.getElementById("invite").value = "";
+      alert("Invite code cleared.");
+    });
+  </script>
+</body>
+</html>

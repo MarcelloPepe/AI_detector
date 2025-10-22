@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AI Detector &middot; Trajectory Features</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#121833;
+      --panel-2:#0f1530;
+      --text:#eef2ff;
+      --muted:#a6b0d8;
+      --brand:#7c9cff;
+      --brand-2:#9bffd6;
+      --danger:#ff6b6b;
+      --ok:#00d38e;
+      --card-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      --radius:18px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      color:var(--text);
+      background:
+        radial-gradient(1200px 600px at 80% -10%, rgba(124,156,255,0.25), transparent 60%),
+        radial-gradient(900px 600px at -10% 10%, rgba(155,255,214,0.18), transparent 60%),
+        linear-gradient(180deg, #0a0f24 0%, #0b1128 60%, #0b1128 100%);
+      background-attachment: fixed;
+    }
+    header{
+      position:sticky; top:0; z-index:3;
+      background: rgba(10,16,36,0.6);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(124,156,255,0.15);
+    }
+    .wrap{max-width:1100px;margin:0 auto;padding:18px 20px;display:flex;align-items:center;gap:16px}
+    .brand{
+      display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)
+    }
+    .logo{
+      width:34px;height:34px;border-radius:10px;
+      background: conic-gradient(from 210deg, var(--brand), var(--brand-2), var(--brand));
+      box-shadow:0 6px 18px rgba(124,156,255,0.45), inset 0 0 20px rgba(255,255,255,0.15);
+    }
+    .title{font-weight:700;letter-spacing:.2px}
+    nav{margin-left:auto;display:flex;gap:10px}
+    .navbtn{
+      background: transparent;border:1px solid rgba(124,156,255,0.3);color:var(--text);
+      padding:10px 12px;border-radius:12px;cursor:pointer
+    }
+    .navbtn:hover{border-color: var(--brand); box-shadow: 0 0 0 3px rgba(124,156,255,0.15)}
+    main{max-width:1100px;margin:24px auto;padding:0 20px 40px}
+    .grid{display:grid;grid-template-columns: 1.1fr .9fr;gap:18px}
+    @media (max-width: 980px){.grid{grid-template-columns:1fr}}
+    .card{
+      background: linear-gradient(180deg, rgba(18,24,51,.9), rgba(12,18,40,.9));
+      border:1px solid rgba(124,156,255,0.16);
+      border-radius: var(--radius); box-shadow: var(--card-shadow);
+    }
+    .card .hd{padding:16px 16px 0;font-weight:700;color:#dfe6ff}
+    .card .bd{padding:14px 16px 18px}
+    textarea{
+      width:100%; min-height:260px; resize:vertical;
+      background: var(--panel-2); color: var(--text);
+      border:1px solid rgba(124,156,255,0.22); border-radius:14px;
+      padding:14px 14px; line-height:1.5; outline:none;
+    }
+    textarea:focus{border-color:var(--brand); box-shadow:0 0 0 4px rgba(124,156,255,0.15)}
+    .controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+    .btn{
+      background: linear-gradient(180deg, #8aa4ff, #6d8bff);
+      color:#071021;border:none;padding:12px 16px;font-weight:800;border-radius:12px;
+      cursor:pointer; box-shadow:0 12px 24px rgba(124,156,255,0.35);
+    }
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .ghost{
+      background: transparent; color: var(--text); border:1px solid rgba(124,156,255,0.28);
+      padding:11px 12px; border-radius:12px; cursor:pointer
+    }
+    .ghost:hover{border-color: var(--brand)}
+    .muted{color:var(--muted); font-size:12px}
+    .split{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+    .pill{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:8px 10px;background:#0f1738;border:1px solid rgba(124,156,255,0.2);border-radius:999px
+    }
+    .meter{
+      height:10px;border-radius:999px;background: #0d1330;border:1px solid rgba(124,156,255,0.2);
+      overflow:hidden; position:relative; margin-top:6px
+    }
+    .meter > i{
+      display:block;height:100%; width:0%;
+      background: linear-gradient(90deg, #ff9fb0, #ff6b6b, #ffd36b, #7cffc4);
+      transition: width .35s ease
+    }
+    .result{
+      display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:10px
+    }
+    .k{
+      background: #0f1530; border:1px solid rgba(124,156,255,0.2); border-radius:12px;
+      padding:12px
+    }
+    .k h5{margin:0 0 6px; font-size:12px; color:var(--muted); letter-spacing:.3px}
+    .k .v{font-weight:800}
+    .badge{
+      display:inline-block; padding:6px 10px; border-radius:999px; font-weight:800;
+      background:#101a3d; border:1px solid rgba(124,156,255,0.28)
+    }
+    .badge.ok{color:#00d38e; border-color:rgba(0,211,142,0.35)}
+    .badge.no{color:#ff6b6b; border-color:rgba(255,107,107,0.35)}
+    .small{font-size:12px}
+
+    .section{
+      margin-top:18px;
+      display:grid; grid-template-columns: 1fr; gap:10px
+    }
+    .section .li{
+      display:flex; gap:10px; align-items:flex-start;
+      background:#0f1530;border:1px solid rgba(124,156,255,0.18);border-radius:12px;padding:12px
+    }
+    .dot{width:10px;height:10px;border-radius:50%;
+      background: radial-gradient(circle at 30% 30%, var(--brand-2), var(--brand));
+      box-shadow: 0 0 14px rgba(155,255,214,.35);
+      margin-top:6px
+    }
+
+    /* Dialogs */
+    dialog{
+      width:min(900px, 92vw); border:1px solid rgba(124,156,255,0.25); border-radius:14px;
+      background:linear-gradient(180deg, #0f1530, #0a0f26); color:var(--text);
+      padding:0; box-shadow:0 30px 60px rgba(0,0,0,.5)
+    }
+    dialog::backdrop{background:rgba(3,6,18,.6); backdrop-filter:blur(2px)}
+    .dlg-hd{padding:14px 16px;border-bottom:1px solid rgba(124,156,255,0.2);display:flex;align-items:center;gap:10px}
+    .dlg-hd h3{margin:0;font-size:16px}
+    .spacer{flex:1}
+    .x{background:transparent;border:1px solid rgba(124,156,255,.28);color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
+    .dlg-bd{padding:16px}
+    .hist-list{display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow:auto}
+    .hist-item{
+      background:#0f1530;border:1px solid rgba(124,156,255,.18);border-radius:12px;padding:10px
+    }
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+
+    /* Skeleton state */
+    .skeleton{position:relative;overflow:hidden}
+    .skeleton::after{
+      content:""; position:absolute; inset:0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+      transform: translateX(-100%); animation: shimmer 1.2s infinite;
+    }
+    @keyframes shimmer{100%{transform: translateX(100%)}}
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="wrap">
+      <a class="brand" href="/">
+        <div class="logo" aria-hidden="true"></div>
+        <div class="title">AI Detector</div>
+      </a>
+      <nav>
+        <button class="navbtn" id="openHistory">History</button>
+        <button class="navbtn" id="openTech">Technical details</button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid">
+      <!-- INPUT -->
+      <section class="card">
+        <div class="hd">Paste text</div>
+        <div class="bd">
+          <textarea id="text" placeholder="Paste or type your text here. Aim for at least 2-3 full sentences for best results..."></textarea>
+          <div class="split">
+            <div class="muted" id="charCount">0 chars</div>
+            <div class="muted">We don't store your text on the server.</div>
+          </div>
+          <div class="controls">
+            <button class="btn" id="detectBtn">Detect</button>
+            <button class="ghost" id="clearBtn">Clear</button>
+          </div>
+          <div class="muted small" style="margin-top:8px">
+            Tip: Results are most reliable on coherent paragraphs (news, essays, reports). Short prompts or lists may look noisy.
+          </div>
+        </div>
+      </section>
+
+      <!-- OUTPUT -->
+      <section class="card">
+        <div class="hd">Prediction</div>
+        <div class="bd" id="resultCard">
+          <div class="pill" id="predBadge"><span class="badge">—</span><span id="predText" class="v">Awaiting input</span></div>
+          <div class="meter"><i id="probBar" style="width:0%"></i></div>
+          <div class="result">
+            <div class="k"><h5>P(AI)</h5><div class="v" id="pAI">—</div></div>
+            <div class="k"><h5>Decision threshold</h5><div class="v" id="thr">—</div></div>
+            <div class="k"><h5>Sentences used</h5><div class="v" id="nSents">—</div></div>
+            <div class="k"><h5>Model</h5><div class="v small" id="model">—</div></div>
+            <div class="k"><h5>Calibration</h5><div class="v small" id="calib">—</div></div>
+            <div class="k"><h5>Latency</h5><div class="v small" id="lat">—</div></div>
+          </div>
+
+          <div class="section" style="margin-top:12px">
+            <div class="li">
+              <div class="dot"></div>
+              <div>
+                <div class="muted small">Nerd view: feature preview</div>
+                <div class="mono small" id="featPreview">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- WHY BETTER -->
+    <section class="card" style="margin-top:18px">
+      <div class="hd">Why this detector is better</div>
+      <div class="bd">
+        <div class="section">
+          <div class="li">
+            <div class="dot"></div>
+            <div><strong>Fast on CPU.</strong> No external LLM calls; sentence-embedding geometry keeps it snappy.</div>
+          </div>
+          <div class="li">
+            <div class="dot"></div>
+            <div><strong>Modern training.</strong> Tuned on GPT-5–era outputs; clearer probability + threshold so calls are understandable.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- HISTORY MODAL -->
+  <dialog id="historyDlg">
+    <div class="dlg-hd">
+      <h3>History</h3>
+      <div class="spacer"></div>
+      <button class="x" id="closeHistory">Close</button>
+    </div>
+    <div class="dlg-bd">
+      <div class="muted small" style="margin-bottom:8px">Only stored in your browser (localStorage).</div>
+      <div class="hist-list" id="histList"></div>
+    </div>
+  </dialog>
+
+  <!-- TECHNICAL DETAILS MODAL -->
+  <dialog id="techDlg">
+    <div class="dlg-hd">
+      <h3>Technical details</h3>
+      <div class="spacer"></div>
+      <button class="x" id="closeTech">Close</button>
+    </div>
+    <div class="dlg-bd">
+      <div class="section">
+        <div class="li">
+          <div class="dot"></div>
+          <div>
+            <strong>Pipeline.</strong> Sentence tokenization → MiniLM-L6 sentence embeddings (L2-norm) → trajectory features (path length, variance, straightness, directional persistence, NN distances) → standardized logistic regression + probability calibration + tuned threshold.
+          </div>
+        </div>
+        <div class="li">
+          <div class="dot"></div>
+          <div>
+            <strong>When it shines.</strong> Coherent prose (news, essays, reports). Very short/fragmented inputs reduce signal; pair with human judgment for high-stakes use.
+          </div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    const $ = sel => document.querySelector(sel);
+    const text = $('#text');
+    const detectBtn = $('#detectBtn');
+    const clearBtn = $('#clearBtn');
+    const charCount = $('#charCount');
+
+    const probBar = $('#probBar');
+    const predBadge = $('#predBadge');
+    const predText = $('#predText');
+    const pAI = $('#pAI');
+    const thr = $('#thr');
+    const nSents = $('#nSents');
+    const model = $('#model');
+    const calib = $('#calib');
+    const lat = $('#lat');
+    const featPreview = $('#featPreview');
+
+    const historyDlg = $('#historyDlg');
+    const openHistory = $('#openHistory');
+    const closeHistory = $('#closeHistory');
+    const histList = $('#histList');
+
+    const techDlg = $('#techDlg');
+    const openTech = $('#openTech');
+    const closeTech = $('#closeTech');
+
+    const LS_KEY = 'aidetector_history_v1';
+    const INVITE_KEY = 'aidetector_invite_code';
+    const MAX_WORDS = 1500;
+
+    function getInviteCode(){ return localStorage.getItem(INVITE_KEY) || ""; }
+
+    function fmtPct(x){return (x*100).toFixed(1)+'%';}
+    function fmtMs(ms){return ms.toFixed(0)+' ms';}
+
+    function updateCharCount(){
+      charCount.textContent = (text.value||'').length + ' chars';
+    }
+    updateCharCount();
+    text.addEventListener('input', updateCharCount);
+
+    function setLoading(on){
+      if(on){
+        detectBtn.disabled = true;
+        $('#resultCard').classList.add('skeleton');
+      }else{
+        detectBtn.disabled = false;
+        $('#resultCard').classList.remove('skeleton');
+      }
+    }
+
+    function badge(label){
+      const span = predBadge.querySelector('.badge');
+      if(label === 'ai'){
+        span.classList.remove('ok'); span.classList.add('no');
+        span.textContent = 'AI';
+      }else if(label === 'human'){
+        span.classList.remove('no'); span.classList.add('ok');
+        span.textContent = 'Human';
+      }else{
+        span.classList.remove('ok','no'); span.textContent = '—';
+      }
+    }
+
+    function pushHistory(entry){
+      try{
+        const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+        arr.unshift(entry);
+        localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0, 50)));
+      }catch(e){}
+    }
+
+    function renderHistory(){
+      const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+      histList.innerHTML = '';
+      if(arr.length === 0){
+        histList.innerHTML = '<div class="muted small">No history yet.</div>';
+        return;
+      }
+      for(const item of arr){
+        const div = document.createElement('div');
+        div.className = 'hist-item';
+        div.innerHTML = `
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+            <div><span class="badge ${item.label==='ai'?'no':'ok'}">${item.label.toUpperCase()}</span>
+            <span class="muted mono small" style="margin-left:8px">P(AI) ${fmtPct(item.prob_ai)}</span></div>
+            <div class="muted small">${new Date(item.t).toLocaleString()}</div>
+          </div>
+          <div class="mono small" style="margin-top:6px">${item.preview}</div>
+        `;
+        histList.appendChild(div);
+      }
+    }
+
+    openHistory.addEventListener('click', ()=>{ renderHistory(); historyDlg.showModal(); });
+    closeHistory.addEventListener('click', ()=> historyDlg.close());
+
+    openTech.addEventListener('click', ()=> techDlg.showModal());
+    closeTech.addEventListener('click', ()=> techDlg.close());
+
+    clearBtn.addEventListener('click', ()=>{ text.value=''; updateCharCount(); text.focus(); });
+
+    function wordCount(str){
+      return (str.trim().split(/\s+/).filter(Boolean)).length;
+    }
+
+    detectBtn.addEventListener('click', async ()=>{
+      const payload = (text.value||'').trim();
+      if(payload.length < 40){ alert('Please paste a few full sentences for best results.'); return; }
+
+      // Client-side word limit
+      const words = wordCount(payload);
+      if(words > MAX_WORDS){
+        alert(`Input is too long. Max ${MAX_WORDS} words.`);
+        return;
+      }
+
+      // Require invite code
+      const invite = getInviteCode();
+      if(!invite){
+        alert('Missing invite code. Returning to the landing page.');
+        window.location.href = '/';
+        return;
+      }
+
+      setLoading(true);
+      predText.textContent = 'Running...';
+      badge(null);
+      probBar.style.width = '0%';
+      pAI.textContent = '—'; thr.textContent = '—'; nSents.textContent = '—'; model.textContent = '—'; calib.textContent = '—'; lat.textContent = '—';
+      featPreview.textContent = '—';
+
+      try{
+        const res = await fetch('/api/detect', {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            'X-Invite-Code': invite
+          },
+          body: JSON.stringify({text: payload})
+        });
+
+        if(res.status === 401){
+          alert('Invalid or missing invite code. Returning to the landing page.');
+          window.location.href = '/';
+          return;
+        }
+        if(res.status === 429){
+          const err429 = await res.json().catch(()=>({detail:'Rate limit reached'}));
+          alert(err429.detail || 'Rate limit reached (10 detections total per invite code).');
+          return;
+        }
+        if(!res.ok){
+          const err = await res.json().catch(()=>({detail: res.statusText}));
+          throw new Error(err.detail || ('HTTP '+res.status));
+        }
+
+        const data = await res.json();
+
+        // Update UI
+        const label = data.label;
+        const labelText = (label==='ai' ? 'Looks AI-generated' : 'Looks human-written');
+        badge(label);
+        predText.textContent = labelText;
+        pAI.textContent = fmtPct(data.prob_ai);
+        thr.textContent = fmtPct(data.threshold);
+        nSents.textContent = data.n_sents;
+        model.textContent = data.model_name || '—';
+        calib.textContent = data.calibrated ? ('Calibrated ('+(data.calibration_method||'')+')') : 'Uncalibrated';
+        lat.textContent = data.latency_ms ? fmtMs(data.latency_ms) : '—';
+        probBar.style.width = (data.prob_ai*100).toFixed(1)+'%';
+
+        const fp = data.debug?.features_preview || {};
+        featPreview.textContent = `n_sents=${fp.n_sents ?? '—'}  path_len=${fp.path_len ?? '—'}  mean_step=${fp.mean_step ?? '—'}  p90=${fp.p90_step ?? '—'}  straight=${fp.straightness ?? '—'}  dir_persist=${fp.dir_persistence ?? '—'}  nn=${fp.avg_nn_dist ?? '—'}`;
+
+        // Save compact preview locally
+        const preview = payload.slice(0, 180).replace(/\s+/g,' ') + (payload.length>180?'...':'');
+        const labelSimple = (label==='ai'?'ai':'human');
+        pushHistory({t: Date.now(), label: labelSimple, prob_ai: data.prob_ai, preview});
+      }catch(e){
+        badge(null);
+        predText.textContent = 'Error';
+        pAI.textContent = '—'; probBar.style.width = '0%';
+        alert('Detect failed: ' + (e?.message || e));
+      }finally{
+        setLoading(false);
+      }
+    });
+  </script>
+</body>
+</html>
+
+

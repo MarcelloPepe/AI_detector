@@ -1,0 +1,4 @@
+{"uid": "emozilla/pg19::pg19_00012", "label": 0, "pred": 0, "prob_ai": 0.0}
+{"uid": "ai_gen::pg19_00012", "label": 1, "pred": 1, "prob_ai": 0.8375780168501539}
+{"uid": "emozilla/pg19::pg19_00021", "label": 0, "pred": 1, "prob_ai": 0.815138999036893}
+{"uid": "ai_gen::pg19_00021", "label": 1, "pred": 1, "prob_ai": 0.8583333333333332}

@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: ai-detector
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn backend.server:app --host 0.0.0.0 --port $PORT"
+    plan: free
+    envVars:
+      - key: INVITE_CODE
+        value: DEMO-ACCESS-2025
+      - key: RATE_LIMIT_TOTAL
+        value: "10"
+      - key: MAX_WORDS
+        value: "1500"
+      # If your artifacts are inside the repo (exp_v4/), no need to set ARTIFACTS_DIR.
+      # - key: ARTIFACTS_DIR
+      #   value: /opt/render/project/src/exp_v4
